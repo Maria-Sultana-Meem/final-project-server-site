@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const admin = require("firebase-admin");
 const port = process.env.PORT || 3000;
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
@@ -51,6 +51,8 @@ async function run() {
   try {
     const db = client.db("loanDB");
     const loanCollection = db.collection("loans");
+    const applicationCollection = db.collection("loanApplications");
+    const usersCollection = db.collection("users");
 
     app.post("/all-loans", async (req, res) => {
       const loanData = req.body;
@@ -69,98 +71,195 @@ async function run() {
     });
 
     app.get("/all-loans/:id", async (req, res) => {
-       const id = req.params.id;
+      const id = req.params.id;
 
-     const result = await loanCollection.findOne({ _id:new ObjectId(id)});
+      const result = await loanCollection.findOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
+    // loan application apis
+    app.post("/loan-application", verifyJWT, async (req, res) => {
+      try {
+        const applicationData = req.body;
+
+        // Auto-fill certain fields
+        applicationData.status = "Pending"; // default
+        applicationData.applicationFeeStatus = "Unpaid"; // default
+        applicationData.userEmail = req.tokenEmail; // Borrower email from JWT
+
+        const result = await applicationCollection.insertOne(applicationData);
+        res.send(result);
+      } catch (err) {
+        console.log(err);
+        res.status(500).send({ message: "Failed to submit loan application" });
+      }
+    });
+
+    // save user in db
+
+    app.post("/user", async (req, res) => {
+      const userData = req.body;
+      userData.created_at = new Date().toISOString();
+      userData.last_loggedIn = new Date().toISOString();
+      userData.role = "borrower";
+
+      const query = {
+        email: userData.email,
+      };
+
+      const alreadyExists = await usersCollection.findOne(query);
+      console.log("User Already Exists---> ", !!alreadyExists);
+
+      if (alreadyExists) {
+        console.log("Updating user info......");
+        const result = await usersCollection.updateOne(query, {
+          $set: {
+            last_loggedIn: new Date().toISOString(),
+          },
+        });
+        return res.send(result);
+      }
+
+      console.log("Saving new user info......");
+      const result = await usersCollection.insertOne(userData);
+      res.send(result);
+    });
+
+    app.get("/user/role", verifyJWT, async (req, res) => {
+      const result = await usersCollection.findOne({ email: req.tokenEmail });
+      res.send({ role: result?.role });
+    });
+
+    // borrower apis
+
+    app.get("/my-loans/:email", verifyJWT, async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        if (email !== req.tokenEmail) {
+          return res.status(403).send({ message: "Forbidden access" });
+        }
+
+        const result = await applicationCollection
+          .find({ userEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(result);
+      } catch (err) {
+        console.log(err);
+        res.status(500).send({ message: "Failed to fetch loans" });
+      }
+    });
+
+    app.patch("/loan-application/:id", verifyJWT, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updateData = req.body;
+
+        const loan = await applicationCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!loan) return res.status(404).send({ message: "Loan not found" });
+        if (loan.userEmail !== req.tokenEmail)
+          return res.status(403).send({ message: "Forbidden" });
+
+        const result = await applicationCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        res.send(result);
+      } catch (err) {
+        console.log(err);
+        res.status(500).send({ message: "Failed to update loan" });
+      }
+    });
+
     // Payment endpoints
-    // app.post('/create-checkout-session', async (req, res) => {
-    //   const paymentInfo = req.body
-    //   console.log(paymentInfo)
-    //   const session = await stripe.checkout.sessions.create({
-    //     line_items: [
-    //       {
-    //         price_data: {
-    //           currency: 'usd',
-    //           product_data: {
-    //             name: paymentInfo?.name,
-    //             description: paymentInfo?.description,
-    //             images: [paymentInfo.image],
-    //           },
-    //           unit_amount: paymentInfo?.price * 100,
-    //         },
-    //         quantity: paymentInfo?.quantity,
-    //       },
-    //     ],
-    //     customer_email: paymentInfo?.customer?.email,
-    //     mode: 'payment',
-    //     metadata: {
-    //       plantId: paymentInfo?.plantId,
-    //       customer: paymentInfo?.customer.email,
-    //     },
-    //     success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-    //     cancel_url: `${process.env.CLIENT_DOMAIN}/plant/${paymentInfo?.plantId}`,
-    //   })
-    //   res.send({ url: session.url })
-    // })
+   app.post('/create-checkout-session', async (req, res) => {
+  const paymentInfo = req.body; // { loanId, email, amount }
+  try {
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Loan Application Fee - ${paymentInfo.loanId}`,
+              description: 'Microloan Application Fee',
+            },
+            unit_amount: paymentInfo.amount * 100, // amount in cents
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: paymentInfo.email,
+      mode: 'payment',
+      metadata: {
+        loanId: paymentInfo.loanId,
+        customerEmail: paymentInfo.email,
+      },
+      success_url: `${process.env.CLIENT_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_DOMAIN}/dashboard/my-loans`,
+    });
 
-    // app.post('/payment-success', async (req, res) => {
-    //   const { sessionId } = req.body
-    //   const session = await stripe.checkout.sessions.retrieve(sessionId)
-    //   const plant = await plantsCollection.findOne({
-    //     _id: new ObjectId(session.metadata.plantId),
-    //   })
-    //   const order = await ordersCollection.findOne({
-    //     transactionId: session.payment_intent,
-    //   })
+    res.send({ url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: 'Failed to create Stripe session' });
+  }
+});
 
-    //   if (session.status === 'complete' && plant && !order) {
-    //     // save order data in db
-    //     const orderInfo = {
-    //       plantId: session.metadata.plantId,
-    //       transactionId: session.payment_intent,
-    //       customer: session.metadata.customer,
-    //       status: 'pending',
-    //       seller: plant.seller,
-    //       name: plant.name,
-    //       category: plant.category,
-    //       quantity: 1,
-    //       price: session.amount_total / 100,
-    //       image: plant?.image,
-    //     }
-    //     const result = await ordersCollection.insertOne(orderInfo)
-    //     // update plant quantity
-    //     await plantsCollection.updateOne(
-    //       {
-    //         _id: new ObjectId(session.metadata.plantId),
-    //       },
-    //       { $inc: { quantity: -1 } }
-    //     )
 
-    //     return res.send({
-    //       transactionId: session.payment_intent,
-    //       orderId: result.insertedId,
-    //     })
-    //   }
-    //   res.send(
-    //     res.send({
-    //       transactionId: session.payment_intent,
-    //       orderId: order._id,
-    //     })
-    //   )
-    // })
+app.post('/payment-success', async (req, res) => {
+  try {
+    const { sessionId } = req.body;
 
-    // get all orders for a customer by email
+    if (!sessionId) return res.status(400).send({ error: 'Session ID missing' });
 
-    // Send a ping to confirm a successful connection
+   
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    
+    const loanId = session.metadata.loanId;
+    const email = session.customer_email;
+
+    
+    const result = await applicationCollection.updateOne(
+      { _id: new ObjectId(loanId) },
+      {
+        $set: {
+          applicationFeeStatus: 'Paid',
+          paymentInfo: {
+            transactionId: session.payment_intent,
+            email,
+            amount: session.amount_total / 100,
+            paymentDate: new Date(),
+          },
+        },
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).send({ error: 'Loan application not found' });
+    }
+
+    res.send({ success: true });
+  } catch (err) {
+    console.error('Payment verification error:', err);
+    res.status(500).send({ error: 'Payment verification failed' });
+  }
+});
+
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
   } finally {
-    // Ensures that the client will close when you finish/error
+    
   }
 }
 run().catch(console.dir);
