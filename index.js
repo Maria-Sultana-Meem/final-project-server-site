@@ -253,6 +253,42 @@ app.post('/payment-success', async (req, res) => {
   }
 });
 
+// admin related apis
+    app.get('/manage-users',async(req,res)=>{
+      const result = await usersCollection.find().toArray()
+      res.send(result)
+    })
+
+  app.patch('/update-role/:email', async (req, res) => {
+  const email = req.params.email;
+  const { role } = req.body;
+
+  const result = await usersCollection.updateOne(
+    { email },
+    { $set: { role } }
+  );
+
+  res.send(result);
+});
+
+app.patch('/suspend-user/:email', async (req, res) => {
+  const email = req.params.email;
+  const { reason, feedback } = req.body;
+
+  const result = await usersCollection.updateOne(
+    { email },
+    {
+      $set: {
+        role: "suspended",
+        suspendReason: reason,
+        suspendFeedback: feedback
+      }
+    }
+  );
+
+  res.send(result);
+});
+
 
     await client.db("admin").command({ ping: 1 });
     console.log(
