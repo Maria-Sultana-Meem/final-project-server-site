@@ -60,10 +60,33 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/available-loans", async (req, res) => {
-      const result = await loanCollection.find().limit(6).toArray();
-      res.send(result);
-    });
+   
+app.get("/available-loans", async (req, res) => {
+  try {
+   
+    let result = await loanCollection
+      .find({ showOnHome: true })
+      .sort({ _id: -1 }) 
+      .toArray();
+
+    
+    if (result.length < 6) {
+      const excludeIds = result.map((loan) => loan._id); 
+      const remaining = await loanCollection
+        .find({ _id: { $nin: excludeIds } })
+        .limit(6 - result.length)
+        .toArray();
+
+      result = [...result, ...remaining];
+    }
+
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to fetch available loans" });
+  }
+});
+
 
     app.get("/all-loans", async (req, res) => {
       const result = await loanCollection.find().toArray();
@@ -288,6 +311,37 @@ app.patch('/suspend-user/:email', async (req, res) => {
 
   res.send(result);
 });
+
+
+  app.patch("/update-loan/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const result = await loanCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to update loan" });
+  }
+});
+
+app.delete("/delete-loan/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await loanCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to delete loan" });
+  }
+});
+
+
 
 
     await client.db("admin").command({ ping: 1 });
