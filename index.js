@@ -341,6 +341,25 @@ app.delete("/delete-loan/:id", verifyJWT, async (req, res) => {
   }
 });
 
+app.get("/loan-applications", verifyJWT, async (req, res) => {
+  try {
+  
+    const adminUser = await usersCollection.findOne({ email: req.tokenEmail });
+    if (!adminUser || adminUser.role !== "admin") {
+      return res.status(403).send({ message: "Forbidden Access" });
+    }
+
+    const applications = await applicationCollection
+      .find()
+      .sort({ _id: -1 }) 
+      .toArray();
+    res.send(applications);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to fetch loan applications" });
+  }
+});
+
 
 
 
