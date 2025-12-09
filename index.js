@@ -105,10 +105,11 @@ app.get("/available-loans", async (req, res) => {
       try {
         const applicationData = req.body;
 
-        // Auto-fill certain fields
-        applicationData.status = "Pending"; // default
-        applicationData.applicationFeeStatus = "Unpaid"; // default
-        applicationData.userEmail = req.tokenEmail; // Borrower email from JWT
+        
+        applicationData.status = "Pending"; 
+        applicationData.applicationFeeStatus = "Unpaid";
+        applicationData.userEmail = req.tokenEmail; 
+        applicationData.createdAt = new Date(); 
 
         const result = await applicationCollection.insertOne(applicationData);
         res.send(result);
@@ -359,6 +360,111 @@ app.get("/loan-applications", verifyJWT, async (req, res) => {
     res.status(500).send({ message: "Failed to fetch loan applications" });
   }
 });
+
+// manager related apis
+app.post("/add-loan", async (req, res) => {
+  try {
+    const loanData = req.body;
+
+    const result = await loanCollection.insertOne(loanData);
+    res.send(result);
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).send({ message: "Failed to add loan" });
+  }
+});
+
+app.delete("/delete-loan/:id", async (req, res) => {
+  const id = req.params.id;
+  const result = await loanCollection.deleteOne({ _id: new ObjectId(id) });
+  res.send(result);
+});
+
+
+
+app.get("/loan-applications/pending", verifyJWT, async (req, res) => {
+  try {
+    const user = await usersCollection.findOne({ email: req.tokenEmail });
+
+    if (!user || user.role !== "manager") {
+      return res.status(403).send({ message: "Forbidden Access" });
+    }
+
+    const applications = await applicationCollection
+      .find({ status: "Pending" })
+      .sort({ _id: -1 })
+      .toArray();
+
+    res.send(applications);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to fetch pending loan applications" });
+  }
+});
+
+
+app.patch("/loan-application/approve/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const user = await usersCollection.findOne({ email: req.tokenEmail });
+    if (!user || user.role !== "manager") {
+      return res.status(403).send({ message: "Forbidden: Manager access only" });
+    }
+
+    const loan = await applicationCollection.findOne({ _id: new ObjectId(id) });
+    if (!loan) return res.status(404).send({ message: "Loan not found" });
+
+    const result = await applicationCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "Failed to update loan" });
+  }
+});
+
+
+
+app.patch("/loan-application/reject/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await applicationCollection.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: { status: "Rejected" },
+    }
+  );
+
+  res.send(result);
+});
+
+app.get("/loan-applications/approved", verifyJWT, async (req, res) => {
+  try {
+    const user = await usersCollection.findOne({ email: req.tokenEmail });
+
+    
+    if (!user || user.role !== "manager") {
+      return res.status(403).send({ message: "Forbidden Access" });
+    }
+
+    const approvedLoans = await applicationCollection
+      .find({ status: "Approved" })
+      .sort({ approvedAt: -1 })
+      .toArray();
+
+    res.send(approvedLoans);
+  } catch (err) {
+    console.log(err);
+    res.status(500).send({ message: "Failed to fetch approved loans" });
+  }
+});
+
 
 
 
