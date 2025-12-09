@@ -89,9 +89,11 @@ app.get("/available-loans", async (req, res) => {
 
 
     app.get("/all-loans", async (req, res) => {
-      const result = await loanCollection.find().toArray();
+      const {limit =0 ,skip =0}=req.query
+      const result = await loanCollection.find().limit(Number(limit)).skip(Number(skip)).toArray();
       res.send(result);
     });
+
 
     app.get("/all-loans/:id", async (req, res) => {
       const id = req.params.id;
@@ -465,6 +467,31 @@ app.get("/loan-applications/approved", verifyJWT, async (req, res) => {
   }
 });
 
+
+// MANAGER PROFILE API
+app.get("/manager/profile", verifyJWT, async (req, res) => {
+  try {
+    // find logged in user from database
+    const manager = await usersCollection.findOne(
+      { email: req.tokenEmail },
+      { projection: { password: 0 } }
+    );
+
+    if (!manager) {
+      return res.status(404).send({ message: "Manager not found" });
+    }
+
+    if (manager.role !== "manager") {
+      return res.status(403).send({ message: "Forbidden: Manager access only" });
+    }
+
+    res.send(manager);
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).send({ message: "Failed to fetch manager profile" });
+  }
+});
 
 
 
