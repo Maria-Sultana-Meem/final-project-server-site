@@ -18,6 +18,7 @@ const app = express();
 app.use(
   cors({
     origin: "https://loanlink-project.netlify.app",
+    // origin: "http://localhost:5173",
     credentials: true,
   })
 );
@@ -53,6 +54,30 @@ async function run() {
     const loanCollection = db.collection("loans");
     const applicationCollection = db.collection("loanApplications");
     const usersCollection = db.collection("users");
+
+
+    // middleware
+
+    const verifyADMIN = async (req, res, next) => {
+      const email = req.tokenEmail
+      const user = await usersCollection.findOne({ email })
+      if (user?.role !== 'admin')
+        return res
+          .status(403)
+          .send({ message: 'Admin only Actions!', role: user?.role })
+
+      next()
+    }
+    const verifyMANAGER = async (req, res, next) => {
+      const email = req.tokenEmail
+      const user = await usersCollection.findOne({ email })
+      if (user?.role !== 'manager')
+        return res
+          .status(403)
+          .send({ message: 'Manager only Actions!', role: user?.role })
+
+      next()
+    }
 
     app.post("/all-loans", async (req, res) => {
       const loanData = req.body;
@@ -204,8 +229,8 @@ app.get("/available-loans", async (req, res) => {
     });
 
     // Payment endpoints
-   app.post('/create-checkout-session', async (req, res) => {
-  const paymentInfo = req.body; // { loanId, email, amount }
+   app.post('/create-checkout-session',verifyJWT, async (req, res) => {
+  const paymentInfo = req.body; 
   try {
     const session = await stripe.checkout.sessions.create({
       line_items: [
@@ -239,7 +264,7 @@ app.get("/available-loans", async (req, res) => {
 });
 
 
-app.post('/payment-success', async (req, res) => {
+app.post('/payment-success',verifyJWT, async (req, res) => {
   try {
     const { sessionId } = req.body;
 
@@ -282,7 +307,7 @@ app.post('/payment-success', async (req, res) => {
 // admin related apis
     // 
     
-    app.get("/manage-users", async (req, res) => {
+    app.get("/manage-users",verifyJWT, verifyADMIN, async (req, res) => {
   const search = req.query.search || "";
   const role = req.query.role || "all";
 
@@ -304,7 +329,7 @@ app.post('/payment-success', async (req, res) => {
 });
 
 
-  app.patch('/update-role/:email', async (req, res) => {
+  app.patch('/update-role/:email',verifyJWT, verifyADMIN, async (req, res) => {
   const email = req.params.email;
   const { role } = req.body;
 
@@ -316,7 +341,7 @@ app.post('/payment-success', async (req, res) => {
   res.send(result);
 });
 
-app.patch('/suspend-user/:email', async (req, res) => {
+app.patch('/suspend-user/:email',verifyJWT, verifyADMIN, async (req, res) => {
   const email = req.params.email;
   const { reason, feedback } = req.body;
 
@@ -363,7 +388,7 @@ app.delete("/delete-loan/:id", verifyJWT, async (req, res) => {
   }
 });
 
-app.get("/loan-applications", verifyJWT, async (req, res) => {
+app.get("/loan-applications", verifyJWT,verifyADMIN, async (req, res) => {
   try {
   
     const adminUser = await usersCollection.findOne({ email: req.tokenEmail });
@@ -383,7 +408,7 @@ app.get("/loan-applications", verifyJWT, async (req, res) => {
 });
 
 // manager related apis
-app.post("/add-loan", async (req, res) => {
+app.post("/add-loan",verifyJWT,verifyMANAGER, async (req, res) => {
   try {
     const loanData = req.body;
 
@@ -404,7 +429,7 @@ app.delete("/delete-loan/:id", async (req, res) => {
 
 
 
-app.get("/loan-applications/pending", verifyJWT, async (req, res) => {
+app.get("/loan-applications/pending", verifyJWT,verifyMANAGER, async (req, res) => {
   try {
     const user = await usersCollection.findOne({ email: req.tokenEmail });
 
@@ -425,7 +450,7 @@ app.get("/loan-applications/pending", verifyJWT, async (req, res) => {
 });
 
 
-app.patch("/loan-application/approve/:id", verifyJWT, async (req, res) => {
+app.patch("/loan-application/approve/:id", verifyJWT,verifyMANAGER, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -465,7 +490,7 @@ app.patch("/loan-application/reject/:id", async (req, res) => {
   res.send(result);
 });
 
-app.get("/loan-applications/approved", verifyJWT, async (req, res) => {
+app.get("/loan-applications/approved", verifyJWT,verifyMANAGER, async (req, res) => {
   try {
     const user = await usersCollection.findOne({ email: req.tokenEmail });
 
@@ -488,7 +513,7 @@ app.get("/loan-applications/approved", verifyJWT, async (req, res) => {
 
 
 // MANAGER PROFILE API
-app.get("/manager/profile", verifyJWT, async (req, res) => {
+app.get("/manager/profile", verifyJWT,verifyMANAGER, async (req, res) => {
   try {
     // find logged in user from database
     const manager = await usersCollection.findOne(
