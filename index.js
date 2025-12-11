@@ -280,10 +280,29 @@ app.post('/payment-success', async (req, res) => {
 });
 
 // admin related apis
-    app.get('/manage-users',async(req,res)=>{
-      const result = await usersCollection.find().toArray()
-      res.send(result)
-    })
+    // 
+    
+    app.get("/manage-users", async (req, res) => {
+  const search = req.query.search || "";
+  const role = req.query.role || "all";
+
+  let query = {};
+
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } }
+    ];
+  }
+
+  if (role !== "all") {
+    query.role = role;
+  }
+
+  const result = await usersCollection.find(query).toArray();
+  res.send(result);
+});
+
 
   app.patch('/update-role/:email', async (req, res) => {
   const email = req.params.email;
