@@ -17,7 +17,7 @@ const app = express();
 // middleware
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: "https://loanlink-project.netlify.app",
     credentials: true,
   })
 );
