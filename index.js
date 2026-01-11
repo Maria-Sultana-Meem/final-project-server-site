@@ -17,8 +17,8 @@ const app = express();
 // middleware
 app.use(
   cors({
-    origin: "https://loanlink-project.netlify.app",
-    // origin: "http://localhost:5173",
+    // origin: "https://loanlink-project.netlify.app",
+    origin: "http://localhost:5173",
     credentials: true,
   })
 );
@@ -95,11 +95,11 @@ app.get("/available-loans", async (req, res) => {
       .toArray();
 
     
-    if (result.length < 6) {
+    if (result.length < 8) {
       const excludeIds = result.map((loan) => loan._id); 
       const remaining = await loanCollection
         .find({ _id: { $nin: excludeIds } })
-        .limit(6 - result.length)
+        .limit(8 - result.length)
         .toArray();
 
       result = [...result, ...remaining];
@@ -113,11 +113,58 @@ app.get("/available-loans", async (req, res) => {
 });
 
 
-    app.get("/all-loans", async (req, res) => {
-      const {limit =0 ,skip =0}=req.query
-      const result = await loanCollection.find().limit(Number(limit)).skip(Number(skip)).toArray();
-      res.send(result);
-    });
+    // app.get("/all-loans", async (req, res) => {
+    //   const {limit =0 ,skip =0}=req.query
+    //   const result = await loanCollection.find().limit(Number(limit)).skip(Number(skip)).toArray();
+    //   res.send(result);
+    // });
+    
+ app.get("/all-loans", async (req, res) => {
+  const {
+    limit = 8,
+    skip = 0,
+    search = "",
+    category = "",
+    interest = "",
+    sort = "",
+  } = req.query;
+
+  let query = {};
+
+  
+  if (search) {
+    query.title = { $regex: search, $options: "i" };
+  }
+
+  
+  if (category) {
+    query.category = category;
+  }
+
+  
+  if (interest === "low") query.interest = { $lt: 7 };
+  if (interest === "mid") query.interest = { $gte: 2, $lte: 6 };
+  if (interest === "high") query.interest = { $gt: 10 };
+
+  
+  let sortOption = {};
+  if (sort === "low") sortOption.interest = 1;
+  if (sort === "high") sortOption.interest = -1;
+
+  
+  const total = await loanCollection.countDocuments(query);
+
+  const loans = await loanCollection
+    .find(query)
+    .sort(sortOption)
+    .skip(Number(skip))
+    .limit(Number(limit))
+    .toArray();
+
+  res.send({ loans, total }); 
+});
+
+
 
 
     app.get("/all-loans/:id", async (req, res) => {
