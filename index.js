@@ -165,6 +165,32 @@ app.get("/available-loans", async (req, res) => {
 });
 
 
+// dashboard home
+
+
+app.get("/dashboard/overview", async (req, res) => {
+  const totalLoans = await loanCollection.countDocuments();
+  const approved = await applicationCollection.countDocuments({ status: "Approved" });
+  const pending = await applicationCollection.countDocuments({ status: "Pending" });
+  const rejected = await applicationCollection.countDocuments({ status: "Rejected" });
+
+  res.send({ totalLoans, approved, pending, rejected });
+});
+
+
+app.get("/dashboard/category-loans", async (req, res) => {
+  const data = await loanCollection.aggregate([
+    { $group: { _id: "$category", count: { $sum: 1 } } },
+  ]).toArray();
+  res.send(data); 
+});
+
+
+app.get("/dashboard/recent-loans", async (req, res) => {
+  const loans = await loanCollection.find().sort({ createdAt: -1 }).limit(5).toArray();
+  res.send(loans);
+});
+
 
 
     app.get("/all-loans/:id", async (req, res) => {
